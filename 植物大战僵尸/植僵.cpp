@@ -11,23 +11,51 @@
 #include<stdio.h>
 #include<iostream>
 #include<graphics.h>
+#include<time.h>
 #include "tools.h"
+#include<mmsystem.h>
+#pragma comment(lib,"winmm.lib");
+
 #define WIN_WIDTH 900//图形化窗口的宽度
 #define WIN_HEIGHT 600//图形化窗口的高度
 enum { wan_dou, xiang_ri_kui, zhiwu_count };
 IMAGE imgBg;//背景图片
 IMAGE imgbar;//植物栏
 IMAGE imgCards[zhiwu_count];//植物卡
-IMAGE* imgZhiWu[zhiwu_count][20];
+IMAGE* imgZhiWu[zhiwu_count][20];//植物卡动态帧
+IMAGE imgSunshineBall[29];//阳光动态帧
+IMAGE imgZM[22];//僵尸动态帧
 
+int sunshine;//阳光值
 int curX, curY;//当前选中的植物，在移动过程中的坐标
 int curZhiWu;// 0:没有选中，1：选中第一种植物
-
+//植物
 struct zhiwu{
 	int type;//植物类型，0：没有植物，1：第一种植物
 	int frameIndex;//序列帧的序号
 };
+//僵尸
+struct zm {
+	int x, y;
+	int frameIndex;
+	bool used;
+	float speed;//僵尸的速度
+};
+//阳光
+struct sunshineBall {
+	int x, y;//实时位置
+	int frameIndex;//阳光序列帧的序号
+	int dextY;//目标位置
+	bool used;//判断是否在使用
+	int timer;//阳光在最终位置停留的时间
+	//xoff和yoff用于实现阳光飞跃
+	float xoff;//x轴方向偏移量
+	float yoff;
+};
+//实例化
 struct zhiwu map[3][9];//植物种植的格子，有3行9列
+struct sunshineBall balls[10];
+struct zm zms[10];
 
 bool fileExist(const char* name) {
 	FILE* fp = fopen(name, "r");
@@ -64,10 +92,46 @@ void gameinit() {
 		}
 	}
 	curZhiWu = 0;
+	sunshine = 50;
+	memset(balls, 0, sizeof(balls));
+	for (int i = 0; i < 29; i++) {
+		sprintf_s(name, sizeof(name), "res/sunshine/%d.png", i + 1);
+		loadimage(&imgSunshineBall[i], name);
+	}
+
+	//配置随机种子
+	srand(time(NULL));
 	//创建游戏图形化窗口
-	initgraph(WIN_WIDTH, WIN_HEIGHT,1);
+	initgraph(WIN_WIDTH, WIN_HEIGHT);
+	//设置字体
+	LOGFONT f;
+	gettextstyle(&f);
+	f.lfHeight = 30;
+	f.lfWidth = 15;
+	strcpy(f.lfFaceName, "Segoe UI Black");
+	//f.lfQuality = ANTIALIASED_QUALITY;//字体抗锯齿
+	settextstyle(&f);
+	setbkmode(TRANSPARENT);//设置透明背景
+	setcolor(BLACK);
+
+	//初始化僵尸数据
+	memset(zms, 0, sizeof(zms));
+	for (int i = 0; i < 22; i++) {
+		sprintf_s(name, sizeof(name), "res/zm/%d.png", i + 1);
+		loadimage(&imgZM[i], name);
+	}
 }
 
+void drawZM() {
+	int zmCount = sizeof(zms) / sizeof(zms[0]);
+	for (int i = 0; i < zmCount; i++) {
+		if (zms[i].used) {
+			IMAGE* img = &imgZM[zms[i].frameIndex];
+			putimagePNG(zms[i].x, zms[i].y - img->getheight(), img);
+		}
+		
+	}
+}
 
 void updateWindows() {
 	//开始缓冲
@@ -101,9 +165,50 @@ void updateWindows() {
 		putimagePNG(curX - img->getwidth() / 2, curY - img->getheight() / 2, imgZhiWu[curZhiWu - 1][0]);
 
 	}
+	//渲染僵尸
+	drawZM();
+	//渲染阳光
+	int ballMax = sizeof(balls) / sizeof(balls[0]);
+	for (int i = 0; i < ballMax; i++) {
+		if (balls[i].used || balls[i].xoff) {
+			putimagePNG(balls[i].x, balls[i].y, &imgSunshineBall[balls[i].frameIndex]);
+		}
+	}
+	char scoreText[8];
+	sprintf_s(scoreText, sizeof(scoreText), "%d", sunshine);
+	//在指定位置输出字符
+	outtextxy(278, 67, scoreText);
 	//结束双缓冲
 	EndBatchDraw();
 }
+//设置阳光球的偏移量
+void setmove(int i) {
+	float destY = 0;
+	float destX = 262;
+	float angle = atan((balls[i].y - destY) / (balls[i].x - destX));
+	balls[i].xoff = 12 * cos(angle);
+	balls[i].yoff = 12 * sin(angle);
+}
+
+void collectSunshine(ExMessage *msg) {
+	int count = sizeof(balls) / sizeof(balls[0]);
+	int w = imgSunshineBall[0].getwidth();
+	int h = imgSunshineBall[0].getheight();
+	for (int i = 0; i < count; i++) {
+		if (balls[i].used) {
+			int x = balls[i].x;
+			int y = balls[i].y;
+			if (msg->x && msg->x < x + w && msg->y>y && msg->y < y + h) {
+				balls[i].used = false;
+				//sunshine += 25;
+				mciSendString("play res/sunshine.mp3", 0, 0, 0);
+				//通过是否有
+				balls[i].xoff = 6;
+			}
+		}
+	}
+}
+
 
 void userClick() {
 	ExMessage msg;//消息结构体，这里是为了获取鼠标消息
@@ -117,6 +222,9 @@ void userClick() {
 				curX = msg.x;
 				curY = msg.y;
 				//std::cout << index << std::endl;
+			}
+			else {
+				collectSunshine(&msg);
 			}
 		}
 		else if (msg.message == WM_MOUSEMOVE && status == 1) {
@@ -139,7 +247,106 @@ void userClick() {
 		}
 	}
 }
+//阳光的创建
+void createSunshine() {
+	static int count = 0;
+	static int fre = 10;
+	count++;
+	if (count >= fre) {
+		fre = 0 + rand() % 200;
+		count = 0;
+		//从阳光池中取一个可以使用的
+		int ballMax = sizeof(balls) / sizeof(balls[0]);
+		int i;
+		for (i = 0; i < ballMax && balls[i].used; i++);
+		if (i >= ballMax)
+			return;
+		balls[i].used = true;
+		balls[i].frameIndex = 0;
+		balls[i].x = 262 + rand() % 560;
+		balls[i].y = 60;
+		balls[i].dextY = 200 + (rand() % 4) * 90;
+		balls[i].timer = 0;
+	}
+	
+}
+//阳光的更新
+void updateSunshine() {
+	int ballMax = sizeof(balls) / sizeof(balls[0]);
+	for (int i = 0; i < ballMax; i++) {
+		if (balls[i].used) {
+			balls[i].frameIndex = (balls[i].frameIndex + 1) % 29;
+			if (balls[i].timer == 0) {
+				balls[i].y += 4;
+			}
+			if (balls[i].y >= balls[i].dextY) {
+				balls[i].timer++;
+				if (balls[i].timer > 100) {
+					balls[i].used = false;
+				}
+				
+			}
+		}
+		else if (balls[i].xoff) {
+			setmove(i);
+			balls[i].x -= balls[i].xoff;
+			balls[i].y -= balls[i].yoff;
+			if (balls[i].y < 0 || balls[i].x < 262) {
+				balls[i].xoff = 0;
+				balls[i].yoff = 0;
+				sunshine += 25;
+			}
+		}
+	}
+}
+//僵尸的创建
+void createZM() {
+	static int count = 0;
+	static int zmfre = 10;
+	count++;
+	if (count >= zmfre) {
+		count = 0;
+		zmfre = 300 + rand() % 200;
+		int zmMax = sizeof(zms) / sizeof(zms[0]);
+		int i;
+		for (i = 0; i < zmMax && zms[i].used; i++);
+		if (i < zmMax) {
+			zms[i].used = true;
+			zms[i].x = WIN_WIDTH;
+			zms[i].y = 172 + (1 + rand() % 3) * 100;
+			zms[i].speed = 0.6;
+		}
+	}
+	
+}
+//僵尸的更新
+void updateZM() {
+	int zmMax = sizeof(zms) / sizeof(zms[0]);
+	//更新僵尸的位置
+	for (int i = 0; i < zmMax; i++) {
+		if (zms[i].used) {
+			zms[i].x -= zms[i].speed;
+			if (zms[i].x < 160) {
+				std::cout << "GAME OVER" << std::endl;
+				MessageBox(NULL, "over", "over", 0);
+				zms[i].used = false;
+				exit(0);//待优化
+			}
+		}
+	}
+	static int count2 = 0;
+	count2++;
+	if (count2 > 1) {
+		count2 = 0;
+		for (int i = 0; i < zmMax; i++) {
+			if (zms[i].used) {
+				zms[i].frameIndex = (zms[i].frameIndex + 1) % 22;
+			}
+		}
+	}
+	
 
+}
 void updateGame() {
 	for (int i = 0; i < 3; i++) {
 		for (int j = 0; j < 9; j++) {
@@ -153,6 +360,10 @@ void updateGame() {
 			}
 		}
 	}
+	createSunshine();//创建阳光
+	updateSunshine();//更新阳光
+	createZM();//创建僵尸
+	updateZM();//更新僵尸
 }
 //启动菜单
 void StartUI() {
@@ -174,8 +385,8 @@ void StartUI() {
 				judge = true;
 			}
 			else if(msg.message == WM_LBUTTONDOWN
-				&& msg.x < 474 && msg.x > 474 + 300
-				&& msg.y < 75 && msg.y > 75 + 140) {
+				&& ((msg.x < 474 || msg.x > 474 + 300)
+				|| (msg.y < 75 ||  msg.y > 75 + 140))) {
 				judge = false;
 			}
 			if (//msg.message == WM_LBUTTONDOWN 
@@ -198,19 +409,20 @@ void StartUI() {
 int main() {
 	gameinit();
 	StartUI();
+	mciSendString("play res/bg.mp3", 0, 0, 0);
 	int timer = 0;
 	bool flag = true;
 	while (1) {
 		userClick();
 		//getDelay返回计算这个函数两次调用之间的间隔
 		timer += getDelay();
-		if (timer > 60) {
+		if (timer > 80) {
 			flag = true;
 			timer = 0;
 		}
 		if (flag) {
 			flag = false;
-			updateGame();//更新游戏数据，现在的作用是使植物实现动态摇晃效果
+			updateGame();//更新游戏数据
 		}
 		updateWindows();
 	
