@@ -128,10 +128,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="tools.cpp" />
+    <ClCompile Include="vector2.cpp" />
     <ClCompile Include="植僵.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="tools.h" />
+    <ClInclude Include="vector2.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -13,12 +13,14 @@
 #include<graphics.h>
 #include<time.h>
 #include "tools.h"
+#include"vector2.h"
 #include<mmsystem.h>
 #pragma comment(lib,"winmm.lib");
 
 #define WIN_WIDTH 900//图形化窗口的宽度
 #define WIN_HEIGHT 600//图形化窗口的高度
 enum { wan_dou, xiang_ri_kui, zhiwu_count };
+enum{SUNSHINE_DOWN,SUNSHINE_GROUND,SUNSHINE_COLLECT,SUNSHINE_PRODUCT};
 IMAGE imgBg;//背景图片
 IMAGE imgbar;//植物栏
 IMAGE imgCards[zhiwu_count];//植物卡
@@ -26,6 +28,8 @@ IMAGE imgbulletnormal;//植物子弹
 IMAGE* imgZhiWu[zhiwu_count][20];//植物卡动态帧
 IMAGE imgSunshineBall[29];//阳光动态帧
 IMAGE imgZM[22];//僵尸动态帧
+IMAGE imgZMDead[20];//僵尸死亡帧
+IMAGE imgZMEat[21];
 
 int sunshine;//阳光值
 int curX, curY;//当前选中的植物，在移动过程中的坐标
@@ -34,6 +38,10 @@ int curZhiWu;// 0:没有选中，1：选中第一种植物
 struct zhiwu{
 	int type;//植物类型，0：没有植物，1：第一种植物
 	int frameIndex;//序列帧的序号
+	bool catched;//是否被僵尸捕获
+	int deadtime;//死亡计数器
+	int timer;
+	int x, y;
 };
 //植物子弹
 struct bullet {
@@ -52,6 +60,8 @@ struct zm {
 	float speed;//僵尸的速度
 	int row;
 	int blood;
+	bool dead;
+	bool eating;//正在吃植物
 };
 //阳光
 struct sunshineBall {
@@ -63,6 +73,12 @@ struct sunshineBall {
 	//xoff和yoff用于实现阳光飞跃
 	float xoff;//x轴方向偏移量
 	float yoff;
+
+	float t;//贝塞尔曲线的时间点(0...1)
+	vector2 p1, p2, p3, p4;
+	vector2 pCur;//当前时刻阳光球的位置
+	float speed;
+	int status;
 };
 //实例化
 struct zhiwu map[3][9];//植物种植的格子，有3行9列
@@ -144,16 +160,46 @@ void gameinit() {
 			imgBullBlast[3].getwidth() * k,
 			imgBullBlast[3].getheight() * k, true);
 	}
+	//初始化僵尸的死亡图片帧
+	for (int i = 0; i < 20; i++) {
+		sprintf_s(name, sizeof(name), "res/zm_dead/%d.png", i + 1);
+		loadimage(&imgZMDead[i], name);
+	}
+	for (int i = 0; i < 21; i++) {
+		sprintf_s(name, sizeof(name), "res/zm_eat/%d.png", i + 1);
+		loadimage(&imgZMEat[i], name);
+	}
 }
 
 void drawZM() {
 	int zmCount = sizeof(zms) / sizeof(zms[0]);
 	for (int i = 0; i < zmCount; i++) {
 		if (zms[i].used) {
-			IMAGE* img = &imgZM[zms[i].frameIndex];
+			//IMAGE* img = (zms[i].dead) ? imgZMDead : imgZM;
+			IMAGE* img = NULL;
+			if (zms[i].dead) {
+				img = imgZMDead;
+			}
+			else if (zms[i].eating) {
+				img = imgZMEat;
+			}
+			else {
+				img = imgZM;
+			}
+			img += zms[i].frameIndex;
 			putimagePNG(zms[i].x, zms[i].y - img->getheight(), img);
 		}
 		
+	}
+}
+//渲染阳光
+void drawSunshines() {
+	int ballMax = sizeof(balls) / sizeof(balls[0]);
+	for (int i = 0; i < ballMax; i++) {
+		if (balls[i].used) {
+			//putimagePNG(balls[i].x, balls[i].y, &imgSunshineBall[balls[i].frameIndex]);
+			putimagePNG(balls[i].pCur.x, balls[i].pCur.y, &imgSunshineBall[balls[i].frameIndex]);
+		}
 	}
 }
 
@@ -174,11 +220,12 @@ void updateWindows() {
 	for (int i = 0; i < 3; i++) {
 		for (int j = 0; j < 9; j++) {
 			if (map[i][j].type > 0) {
-				int x = 256 + j * 81;
-				int y = 179 + i * 102 + 14;
+				//int x = 256 + j * 81;
+				//int y = 179 + i * 102 + 14;
 				int ZhiWuType = map[i][j].type - 1;
 				int index = map[i][j].frameIndex;
-				putimagePNG(x, y, imgZhiWu[ZhiWuType][index]);
+				//putimagePNG(x, y, imgZhiWu[ZhiWuType][index]);
+				putimagePNG(map[i][j].x, map[i][j].y, imgZhiWu[ZhiWuType][index]);
 			}
 		}
 	}
@@ -204,12 +251,8 @@ void updateWindows() {
 		}
 	}
 	//渲染阳光
-	int ballMax = sizeof(balls) / sizeof(balls[0]);
-	for (int i = 0; i < ballMax; i++) {
-		if (balls[i].used || balls[i].xoff) {
-			putimagePNG(balls[i].x, balls[i].y, &imgSunshineBall[balls[i].frameIndex]);
-		}
-	}
+	drawSunshines();
+
 	char scoreText[8];
 	sprintf_s(scoreText, sizeof(scoreText), "%d", sunshine);
 	//在指定位置输出字符
@@ -232,14 +275,25 @@ void collectSunshine(ExMessage *msg) {
 	int h = imgSunshineBall[0].getheight();
 	for (int i = 0; i < count; i++) {
 		if (balls[i].used) {
-			int x = balls[i].x;
-			int y = balls[i].y;
+			//int x = balls[i].x;
+			//int y = balls[i].y;
+			int x = balls[i].pCur.x;
+			int y = balls[i].pCur.y;
 			if (msg->x && msg->x < x + w && msg->y>y && msg->y < y + h) {
-				balls[i].used = false;
+				//balls[i].used = false;
+				balls[i].status = SUNSHINE_COLLECT;
 				//sunshine += 25;
-				mciSendString("play res/sunshine.mp3", 0, 0, 0);
-				//通过是否有
-				balls[i].xoff = 6;
+				//mciSendString("play res/sunshine.mp3", 0, 0, 0);
+				PlaySound("res/sunshine.wav", NULL, SND_FILENAME | SND_ASYNC);
+				//通过是否有偏移量
+				//balls[i].xoff = 6;
+				balls[i].p1 = balls[i].pCur;
+				balls[i].p4 = vector2(262,0);
+				balls[i].t = 0;
+				float distance = dis(balls[i].p1 - balls[i].p4);
+				float off = 8;
+				balls[i].speed = 1.0 / (distance / off);
+				break;
 			}
 		}
 	}
@@ -274,6 +328,8 @@ void userClick() {
 				if (map[row][col].type == 0) {
 					map[row][col].type = curZhiWu;
 					map[row][col].frameIndex = 0;
+					map[row][col].x = 256 + col * 81;
+					map[row][col].y = 179 + row * 102 + 14;
 				}
 				std::cout << row << "," << col << std::endl;
 				
@@ -299,12 +355,46 @@ void createSunshine() {
 			return;
 		balls[i].used = true;
 		balls[i].frameIndex = 0;
-		balls[i].x = 262 + rand() % 560;
-		balls[i].y = 60;
-		balls[i].dextY = 200 + (rand() % 4) * 90;
+		//balls[i].x = 262 + rand() % 560;
+		//balls[i].y = 60;
+		//balls[i].dextY = 200 + (rand() % 4) * 90;
 		balls[i].timer = 0;
+		balls[i].status = SUNSHINE_DOWN;
+		balls[i].t = 0;
+		balls[i].p1 = vector2(262 + rand() % 560, 60);
+		balls[i].p4 = vector2(balls[i].p1.x, 200 + (rand() % 4) * 90);
+		int off = 2;
+		float distance = balls[i].p4.y - balls[i].p1.y;
+		balls[i].speed = 1.0 / (distance / off);
 	}
-	
+	//向日葵生产阳光
+	int ballMax = sizeof(balls) / sizeof(balls[0]);
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 9; j++) {
+			if (map[i][j].type == xiang_ri_kui + 1) {
+				map[i][j].timer++;
+				if (map[i][j].timer > 100) {
+					map[i][j].timer = 0;
+
+					int k;
+					for (k = 0; k < ballMax && balls[k].used; k++);
+					if (k >= ballMax)return;
+
+					balls[k].used = true;
+					balls[k].p1 = vector2(map[i][j].x, map[i][j].y);
+					int w = (100 + rand() % 50) * (rand() % 2 ? 1 : -1);
+					balls[k].p4 = vector2(map[i][j].x + w,
+						map[i][j].y + imgZhiWu[xiang_ri_kui][0]->getheight() - 
+						imgSunshineBall[0].getheight());
+					balls[k].p2 = vector2(balls[k].p1.x + w * 0.3, balls[k].p1.y - 100);
+					balls[k].p3 = vector2(balls[k].p1.x + w * 0.7, balls[k].p1.y - 100);
+					balls[k].status = SUNSHINE_PRODUCT;
+					balls[k].speed = 0.05;
+					balls[k].t = 0;
+				}
+			}
+		}
+	}
 }
 //阳光的更新
 void updateSunshine() {
@@ -312,7 +402,42 @@ void updateSunshine() {
 	for (int i = 0; i < ballMax; i++) {
 		if (balls[i].used) {
 			balls[i].frameIndex = (balls[i].frameIndex + 1) % 29;
-			if (balls[i].timer == 0) {
+			if (balls[i].status == SUNSHINE_DOWN) {
+				struct sunshineBall* sun = &balls[i];
+				sun->t += sun->speed;
+				sun->pCur = sun->p1 + sun->t * (sun->p4 - sun->p1);
+				if (sun->t >= 1) {
+					sun->status = SUNSHINE_GROUND;
+					sun->timer = 0;
+				}
+			}
+			else if (balls[i].status == SUNSHINE_GROUND) {
+				balls[i].timer++;
+				if (balls[i].timer > 100) {
+					balls[i].used = false;
+					balls[i].timer = 0;
+				}
+			}
+			else if (balls[i].status == SUNSHINE_COLLECT) {
+				struct sunshineBall* sun = &balls[i];
+				sun->t += sun->speed;
+				sun->pCur = sun->p1 + sun->t * (sun->p4 - sun->p1);
+				if (sun->t > 1) {
+					sun->used = false;
+					sunshine += 25;
+				}
+			}
+			else if (balls[i].status == SUNSHINE_PRODUCT) {
+				struct sunshineBall* sun = &balls[i];
+				sun->t += sun->speed;
+				sun->pCur = calcBezierPoint(sun->t, sun->p1, sun->p2, sun->p3, sun->p4);
+				if (sun->t > 1) {
+					sun->status = SUNSHINE_GROUND;
+					sun->timer = 0;
+				}
+			}
+
+			/*if (balls[i].timer == 0) {
 				balls[i].y += 4;
 			}
 			if (balls[i].y >= balls[i].dextY) {
@@ -321,18 +446,18 @@ void updateSunshine() {
 					balls[i].used = false;
 				}
 				
-			}
+			}*/
 		}
-		else if (balls[i].xoff) {
-			setmove(i);
-			balls[i].x -= balls[i].xoff;
-			balls[i].y -= balls[i].yoff;
-			if (balls[i].y < 0 || balls[i].x < 262) {
-				balls[i].xoff = 0;
-				balls[i].yoff = 0;
-				sunshine += 25;
-			}
-		}
+		//else if (balls[i].xoff) {
+		//	setmove(i);
+		//	balls[i].x -= balls[i].xoff;
+		//	balls[i].y -= balls[i].yoff;
+		//	if (balls[i].y < 0 || balls[i].x < 262) {
+		//		balls[i].xoff = 0;
+		//		balls[i].yoff = 0;
+		//		sunshine += 25;
+		//	}
+		//}
 	}
 }
 //僵尸的创建
@@ -342,17 +467,19 @@ void createZM() {
 	count++;
 	if (count >= zmfre) {
 		count = 0;
-		zmfre = 300 + rand() % 200;
+		zmfre = 100 + rand() % 50;
 		int zmMax = sizeof(zms) / sizeof(zms[0]);
 		int i;
 		for (i = 0; i < zmMax && zms[i].used; i++);
 		if (i < zmMax) {
+			memset(&zms[i], 0, sizeof(zms[i]));
 			zms[i].used = true;
 			zms[i].x = WIN_WIDTH;
 			zms[i].row = rand() % 3;
 			zms[i].y = 172 + (1 + zms[i].row) * 100;
 			zms[i].speed = 0.6;
 			zms[i].blood = 100;
+			zms[i].dead = false;
 		}
 	}
 
@@ -364,7 +491,7 @@ void updateZM() {
 	for (int i = 0; i < zmMax; i++) {
 		if (zms[i].used) {
 			zms[i].x -= zms[i].speed;
-			if (zms[i].x < 160) {
+			if (zms[i].x < 140) {
 				std::cout << "GAME OVER" << std::endl;
 				MessageBox(NULL, "over", "over", 0);
 				zms[i].used = false;
@@ -372,13 +499,27 @@ void updateZM() {
 			}
 		}
 	}
+	//改变僵尸图片帧
 	static int count2 = 0;
 	count2++;
 	if (count2 > 1) {
 		count2 = 0;
 		for (int i = 0; i < zmMax; i++) {
 			if (zms[i].used) {
-				zms[i].frameIndex = (zms[i].frameIndex + 1) % 22;
+				if (zms[i].dead) {
+					
+					zms[i].frameIndex++;
+					if (zms[i].frameIndex >= 20) {
+						zms[i].used = false;
+					}
+				}
+				else if (zms[i].eating) {
+					zms[i].frameIndex = (zms[i].frameIndex + 1) % 21;
+				}
+				else {
+					zms[i].frameIndex = (zms[i].frameIndex + 1) % 22;
+				}
+				
 			}
 		}
 	}
@@ -441,7 +582,7 @@ void updateBullet() {
 	}
 }
 
-void collisionCheck() {
+void checkBullet2Zm() {
 	int bCount = sizeof(bullets) / sizeof(bullets[0]);
 	int zmCount = sizeof(zms) / sizeof(zms[0]);
 	for (int i = 0; i < bCount; i++) {
@@ -450,13 +591,61 @@ void collisionCheck() {
 			if (zms[k].used == false)continue;
 			int x1 = zms[k].x + 80;
 			int x2 = zms[k].x + 110;
-			if (bullets[i].row == zms[k].row && bullets[i].x > x1 && bullets[i].x < x2) {
+			if (zms[k].dead == false && bullets[i].row == zms[k].row && bullets[i].x > x1 && bullets[i].x < x2) {
 				zms[k].blood -= 20;
 				bullets[i].blast = true;
 				bullets[i].speed = 0;
+				if (zms[k].blood <= 0) {
+					zms[k].dead = true;
+					zms[k].speed = 0;
+					zms[k].frameIndex = 0;
+				}
+				break;
 			}
 		}
 	}
+}
+
+void checkZm2ZhiWu() {
+	int zCount = sizeof(zms) / sizeof(zms[0]);
+	for (int i = 0; i < zCount; i++) {
+		if (zms[i].dead)continue;
+
+		int row = zms[i].row;
+		for (int k = 0; k < 9; k++) {
+			if (map[row][k].type == 0) {
+				continue;
+			}
+			int zhiwux = 256 + k * 81;
+			int x1 = zhiwux + 10;
+			int x2 = zhiwux + 60;
+			int x3 = zms[i].x + 80;
+			if (x3 > x1 && x3 < x2) {
+				if (map[row][k].catched) {
+					map[row][k].deadtime++;
+					if (map[row][k].deadtime > 100) {
+						map[row][k].deadtime = 0;
+						map[row][k].type = 0;
+						zms[i].eating = false;
+						zms[i].frameIndex = 0;
+						zms[i].speed = 0.6;
+					}
+				}
+				else {
+					map[row][k].catched = true;
+					map[row][k].deadtime = 0;
+					zms[i].eating = true;
+					zms[i].speed = 0;
+					zms[i].frameIndex = 0;
+				}
+			}
+		}
+	}
+}
+
+void collisionCheck() {
+	checkBullet2Zm();//子弹对僵尸的碰撞检测
+	checkZm2ZhiWu();//僵尸对植物的碰撞检测
 }
 
 void updateGame() {
