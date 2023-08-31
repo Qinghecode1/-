@@ -30,6 +30,7 @@ IMAGE imgSunshineBall[29];//阳光动态帧
 IMAGE imgZM[22];//僵尸动态帧
 IMAGE imgZMDead[20];//僵尸死亡帧
 IMAGE imgZMEat[21];
+IMAGE imgZmStand[11];
 
 int sunshine;//阳光值
 int curX, curY;//当前选中的植物，在移动过程中的坐标
@@ -165,9 +166,15 @@ void gameinit() {
 		sprintf_s(name, sizeof(name), "res/zm_dead/%d.png", i + 1);
 		loadimage(&imgZMDead[i], name);
 	}
+	//僵尸吃
 	for (int i = 0; i < 21; i++) {
 		sprintf_s(name, sizeof(name), "res/zm_eat/%d.png", i + 1);
 		loadimage(&imgZMEat[i], name);
+	}
+	//僵尸站立
+	for (int i = 0; i < 11; i++) {
+		sprintf_s(name, sizeof(name), "res/zm_stand/%d.png", i + 1);
+		loadimage(&imgZmStand[i], name);
 	}
 }
 
@@ -201,22 +208,22 @@ void drawSunshines() {
 			putimagePNG(balls[i].pCur.x, balls[i].pCur.y, &imgSunshineBall[balls[i].frameIndex]);
 		}
 	}
+	//阳光值
+	char scoreText[8];
+	sprintf_s(scoreText, sizeof(scoreText), "%d", sunshine);
+	//在指定位置输出字符
+	outtextxy(278, 67, scoreText);
 }
 
-void updateWindows() {
-	//开始缓冲
-	BeginBatchDraw();
-	//背景
-	putimage(0, 0, &imgBg);
-	//工具栏
-	putimagePNG(250, 0, &imgbar);
-	//植物卡
+void drawCards() {
 	for (int i = 0; i < zhiwu_count; i++) {
 		int x = 338 + i * 64;
 		int y = 6;
 		putimage(x, y, &imgCards[i]);
 	}
-	
+}
+
+void drawZhiWu() {
 	for (int i = 0; i < 3; i++) {
 		for (int j = 0; j < 9; j++) {
 			if (map[i][j].type > 0) {
@@ -236,9 +243,9 @@ void updateWindows() {
 		putimagePNG(curX - img->getwidth() / 2, curY - img->getheight() / 2, imgZhiWu[curZhiWu - 1][0]);
 
 	}
-	//渲染僵尸
-	drawZM();
-	//渲染植物子弹
+}
+
+void drawBullets() {
 	int bulletMax = sizeof(bullets) / sizeof(bullets[0]);
 	for (int i = 0; i < bulletMax; i++) {
 		if (bullets[i].used == false)continue;
@@ -250,13 +257,28 @@ void updateWindows() {
 			putimagePNG(bullets[i].x, bullets[i].y, &imgbulletnormal);
 		}
 	}
+}
+
+void updateWindows() {
+	//开始缓冲
+	BeginBatchDraw();
+	//背景
+	putimage(-112, 0, &imgBg);
+	//工具栏
+	putimagePNG(250, 0, &imgbar);
+	//植物卡
+	drawCards();
+	//植物
+	drawZhiWu();
 	//渲染阳光
 	drawSunshines();
+	//渲染僵尸
+	drawZM();
+	//渲染植物子弹
+	drawBullets();
+	
 
-	char scoreText[8];
-	sprintf_s(scoreText, sizeof(scoreText), "%d", sunshine);
-	//在指定位置输出字符
-	outtextxy(278, 67, scoreText);
+	
 	//结束双缓冲
 	EndBatchDraw();
 }
@@ -291,7 +313,7 @@ void collectSunshine(ExMessage *msg) {
 				balls[i].p4 = vector2(262,0);
 				balls[i].t = 0;
 				float distance = dis(balls[i].p1 - balls[i].p4);
-				float off = 8;
+				float off = 16;
 				balls[i].speed = 1.0 / (distance / off);
 				break;
 			}
@@ -321,14 +343,14 @@ void userClick() {
 			curX = msg.x;
 			curY = msg.y;
 		}
-		else if (msg.message == WM_LBUTTONUP) {
-			if (msg.x > 256 && msg.y > 179 && msg.y < 489) {
+		else if (msg.message == WM_LBUTTONUP && status == 1) {
+			if (msg.x > 144 && msg.y > 179 && msg.y < 489) {
 				int row = (msg.y - 179) / 102;//行
-				int col = (msg.x - 256) / 81;//列
+				int col = (msg.x - 144) / 81;//列
 				if (map[row][col].type == 0) {
 					map[row][col].type = curZhiWu;
 					map[row][col].frameIndex = 0;
-					map[row][col].x = 256 + col * 81;
+					map[row][col].x = 144 + col * 81;
 					map[row][col].y = 179 + row * 102 + 14;
 				}
 				std::cout << row << "," << col << std::endl;
@@ -361,7 +383,7 @@ void createSunshine() {
 		balls[i].timer = 0;
 		balls[i].status = SUNSHINE_DOWN;
 		balls[i].t = 0;
-		balls[i].p1 = vector2(262 + rand() % 560, 60);
+		balls[i].p1 = vector2(150 + rand() % 672, 60);
 		balls[i].p4 = vector2(balls[i].p1.x, 200 + (rand() % 4) * 90);
 		int off = 2;
 		float distance = balls[i].p4.y - balls[i].p1.y;
@@ -488,21 +510,27 @@ void createZM() {
 void updateZM() {
 	int zmMax = sizeof(zms) / sizeof(zms[0]);
 	//更新僵尸的位置
-	for (int i = 0; i < zmMax; i++) {
-		if (zms[i].used) {
-			zms[i].x -= zms[i].speed;
-			if (zms[i].x < 140) {
-				std::cout << "GAME OVER" << std::endl;
-				MessageBox(NULL, "over", "over", 0);
-				zms[i].used = false;
-				exit(0);//待优化
+	static int count1 = 0;
+	count1++;
+	if (count1 > 1) {
+		count1 = 0;
+		for (int i = 0; i < zmMax; i++) {
+			if (zms[i].used) {
+				zms[i].x -= zms[i].speed;
+				if (zms[i].x < 140) {
+					std::cout << "GAME OVER" << std::endl;
+					MessageBox(NULL, "over", "over", 0);
+					zms[i].used = false;
+					exit(0);//待优化
+				}
 			}
 		}
 	}
+	
 	//改变僵尸图片帧
 	static int count2 = 0;
 	count2++;
-	if (count2 > 1) {
+	if (count2 > 2) {
 		count2 = 0;
 		for (int i = 0; i < zmMax; i++) {
 			if (zms[i].used) {
@@ -553,7 +581,7 @@ void shoot() {
 						bullets[k].speed = 4;
 						bullets[k].blast = false;
 						bullets[k].frameIndex = 0;
-						int zwX = 256 + j * 81;
+						int zwX = 144 + j * 81;
 						int zwY = 179 + i * 102 + 14;
 						bullets[k].x = zwX + imgZhiWu[map[i][j].type - 1][0]->getwidth() - 10;
 						bullets[k].y = zwY + 7;
@@ -576,6 +604,24 @@ void updateBullet() {
 				bullets[i].frameIndex++;
 				if (bullets[i].frameIndex > 3) {
 					bullets[i].used = false;
+				}
+			}
+		}
+	}
+}
+
+void updateZhiWu() {
+	static int count = 0;
+	if (++count < 2)return;
+	count = 0;
+	for (int i = 0; i < 3; i++) {
+		for (int j = 0; j < 9; j++) {
+			if (map[i][j].type > 0) {
+				map[i][j].frameIndex++;
+				int ZhiWuType = map[i][j].type - 1;
+				int index = map[i][j].frameIndex;
+				if (imgZhiWu[ZhiWuType][index] == NULL) {
+					map[i][j].frameIndex = 0;
 				}
 			}
 		}
@@ -616,7 +662,7 @@ void checkZm2ZhiWu() {
 			if (map[row][k].type == 0) {
 				continue;
 			}
-			int zhiwux = 256 + k * 81;
+			int zhiwux = 144 + k * 81;
 			int x1 = zhiwux + 10;
 			int x2 = zhiwux + 60;
 			int x3 = zms[i].x + 80;
@@ -649,18 +695,7 @@ void collisionCheck() {
 }
 
 void updateGame() {
-	for (int i = 0; i < 3; i++) {
-		for (int j = 0; j < 9; j++) {
-			if (map[i][j].type > 0) {
-				map[i][j].frameIndex++;
-				int ZhiWuType = map[i][j].type - 1;
-				int index = map[i][j].frameIndex;
-				if (imgZhiWu[ZhiWuType][index] == NULL) {
-					map[i][j].frameIndex = 0;
-				}
-			}
-		}
-	}
+	updateZhiWu();
 	createSunshine();//创建阳光
 	updateSunshine();//更新阳光
 	createZM();//创建僵尸
@@ -699,7 +734,8 @@ void StartUI() {
 				&& msg.y > 75 && msg.y < 75 + 140) {
 				flag = 1;
 				if (msg.message == WM_LBUTTONUP && judge == true) {
-					return;
+					EndBatchDraw();
+					break;
 				}
 
 			}
@@ -715,9 +751,69 @@ void musicinit() {
 	mciSendString("play res/bg.mp3", 0, 0, 0);
 }
 
+void viewScence() {
+	int xMin = WIN_WIDTH - imgBg.getwidth();
+	vector2 points[9] = {
+		{550,80},{530,160},{630,170},{530,200},{515,270},
+		{565,370},{605,340},{705,280},{690,340}
+	};
+	int index[9];
+	for (int i = 0; i < 9; i++) {
+		index[i] = rand() % 11;
+	}
+	//开始巡场
+	int count = 0;
+	for (int x = 0; x >= xMin; x-=2) {
+		BeginBatchDraw();
+		putimage(x, 0, &imgBg);
+		count++;
+		for (int k = 0; k < 9; k++) {
+			putimagePNG(points[k].x - xMin + x,points[k].y,&imgZmStand[index[k]]);
+			if (count >= 10) {
+				index[k] = (index[k] + 1) % 11;
+			}
+		}
+		if (count >= 10)count = 0;
+		EndBatchDraw();
+		Sleep(5);
+	}
+	//停留2秒
+	for (int i = 0; i < 100; i++) {
+		BeginBatchDraw();
+		putimage(xMin, 0, &imgBg);
+		count++;
+		for (int k = 0; k < 9; k++) {
+			putimagePNG(points[k].x, points[k].y, &imgZmStand[index[k]]);
+			if (count >= 10) {
+				index[k] = (index[k] + 1) % 11;
+			}
+			
+		}
+		if (count >= 10)count = 0;
+		EndBatchDraw();
+		Sleep(20);
+	}
+	//缓慢切回原位
+	for (int x = xMin; x <= -112; x += 2) {
+		BeginBatchDraw();
+		putimage(x, 0, &imgBg);
+		count++;
+		for (int k = 0; k < 9; k++) {
+			putimagePNG(points[k].x - xMin + x, points[k].y, &imgZmStand[index[k]]);
+			if (count >= 10) {
+				index[k] = (index[k] + 1) % 11;
+			}
+		}
+		if (count >= 10)count = 0;
+		EndBatchDraw();
+		Sleep(5);
+	}
+}
+
 int main() {
 	gameinit();
 	StartUI();
+	viewScence();
 	musicinit();
 	int timer = 0;
 	bool flag = true;
@@ -725,7 +821,7 @@ int main() {
 		userClick();
 		//getDelay返回计算这个函数两次调用之间的间隔
 		timer += getDelay();
-		if (timer > 80) {
+		if (timer > 40) {
 			flag = true;
 			timer = 0;
 		}
