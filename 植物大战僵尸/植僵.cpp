@@ -43,6 +43,7 @@ struct zhiwu{
 	int deadtime;//死亡计数器
 	int timer;
 	int x, y;
+	int shootTime;
 };
 //植物子弹
 struct bullet {
@@ -333,7 +334,16 @@ void userClick() {
 				curZhiWu = index + 1;
 				curX = msg.x;
 				curY = msg.y;
-				//std::cout << index << std::endl;
+				if (curZhiWu == wan_dou + 1 && sunshine < 100) {
+					status = 0;
+					curX = 0;
+					curY = 0;
+				}
+				else if (curZhiWu == xiang_ri_kui + 1 && sunshine < 50) {
+					status = 0;
+					curX = 0;
+					curY = 0;
+				}
 			}
 			else {
 				collectSunshine(&msg);
@@ -350,8 +360,15 @@ void userClick() {
 				if (map[row][col].type == 0) {
 					map[row][col].type = curZhiWu;
 					map[row][col].frameIndex = 0;
+					map[row][col].shootTime = 0;
 					map[row][col].x = 144 + col * 81;
 					map[row][col].y = 179 + row * 102 + 14;
+					if (curZhiWu - 1 == wan_dou) {
+						sunshine -= 100;
+					}
+					else if (curZhiWu - 1 == xiang_ri_kui) {
+						sunshine -= 50;
+					}
 				}
 				std::cout << row << "," << col << std::endl;
 				
@@ -367,7 +384,7 @@ void createSunshine() {
 	static int fre = 10;
 	count++;
 	if (count >= fre) {
-		fre = 100 + rand() % 200;
+		fre = 400 + rand() % 300;
 		count = 0;
 		//从阳光池中取一个可以使用的
 		int ballMax = sizeof(balls) / sizeof(balls[0]);
@@ -395,7 +412,7 @@ void createSunshine() {
 		for (int j = 0; j < 9; j++) {
 			if (map[i][j].type == xiang_ri_kui + 1) {
 				map[i][j].timer++;
-				if (map[i][j].timer > 100) {
+				if (map[i][j].timer > 200) {
 					map[i][j].timer = 0;
 
 					int k;
@@ -485,11 +502,11 @@ void updateSunshine() {
 //僵尸的创建
 void createZM() {
 	static int count = 0;
-	static int zmfre = 10;
+	static int zmfre = 100;
 	count++;
 	if (count >= zmfre) {
 		count = 0;
-		zmfre = 100 + rand() % 50;
+		zmfre = 200 + rand() % 130;
 		int zmMax = sizeof(zms) / sizeof(zms[0]);
 		int i;
 		for (i = 0; i < zmMax && zms[i].used; i++);
@@ -517,7 +534,7 @@ void updateZM() {
 		for (int i = 0; i < zmMax; i++) {
 			if (zms[i].used) {
 				zms[i].x -= zms[i].speed;
-				if (zms[i].x < 140) {
+				if (zms[i].x < 10) {
 					std::cout << "GAME OVER" << std::endl;
 					MessageBox(NULL, "over", "over", 0);
 					zms[i].used = false;
@@ -557,6 +574,9 @@ void updateZM() {
 
 
 void shoot() {
+	static int count1 = 0;
+	if (++count1 < 3)return;
+	count1 = 0;
 	bool lines[3] = { false };
 	int zmCount = sizeof(zms) / sizeof(zms[0]);
 	int dangerX = WIN_WIDTH - imgZM[0].getwidth() / 2;
@@ -569,10 +589,11 @@ void shoot() {
 	for (int i = 0; i < 3; i++) {
 		for (int j = 0; j < 9; j++) {
 			if (map[i][j].type == wan_dou + 1 && lines[i]) {
-				static int count = 0;
-				count++;
-				if (count > 50) {
-					count = 0;
+				/*static int count = 0;
+				count++;*/
+				map[i][j].shootTime++;
+				if (map[i][j].shootTime > 40) {
+					map[i][j].shootTime = 0;
 					int k;
 					for (k = 0; k < bulletMax && bullets[k].used; k++);
 					if (k < bulletMax) {
@@ -663,7 +684,7 @@ void checkZm2ZhiWu() {
 				continue;
 			}
 			int zhiwux = 144 + k * 81;
-			int x1 = zhiwux + 10;
+			int x1 = zhiwux;
 			int x2 = zhiwux + 60;
 			int x3 = zms[i].x + 80;
 			if (x3 > x1 && x3 < x2) {
@@ -791,7 +812,7 @@ void viewScence() {
 		}
 		if (count >= 10)count = 0;
 		EndBatchDraw();
-		Sleep(20);
+		Sleep(10);
 	}
 	//缓慢切回原位
 	for (int x = xMin; x <= -112; x += 2) {
@@ -810,11 +831,28 @@ void viewScence() {
 	}
 }
 
+void barsDown() {
+	int height = imgbar.getheight();
+	for (int y = -height; y <= 0; y++) {
+		BeginBatchDraw();
+		putimage(-112, 0, &imgBg);
+		putimagePNG(250, y, &imgbar);
+		for (int i = 0; i < zhiwu_count; i++) {
+			int x = 338 + i * 64;
+			putimagePNG(x, 6 + y, &imgCards[i]);
+		}
+		EndBatchDraw();
+
+	}
+	Sleep(5);
+}
+
 int main() {
 	gameinit();
 	StartUI();
-	viewScence();
 	musicinit();
+	viewScence();
+	barsDown();
 	int timer = 0;
 	bool flag = true;
 	while (1) {
