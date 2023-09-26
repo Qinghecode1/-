@@ -19,8 +19,10 @@
 
 #define WIN_WIDTH 900//图形化窗口的宽度
 #define WIN_HEIGHT 600//图形化窗口的高度
+#define ZM_MAX 10
 enum { wan_dou, xiang_ri_kui, zhiwu_count };
 enum{SUNSHINE_DOWN,SUNSHINE_GROUND,SUNSHINE_COLLECT,SUNSHINE_PRODUCT};
+enum{Going,Win,Fail};
 IMAGE imgBg;//背景图片
 IMAGE imgbar;//植物栏
 IMAGE imgCards[zhiwu_count];//植物卡
@@ -35,6 +37,9 @@ IMAGE imgZmStand[11];
 int sunshine;//阳光值
 int curX, curY;//当前选中的植物，在移动过程中的坐标
 int curZhiWu;// 0:没有选中，1：选中第一种植物
+int sum_ZM;//已经出现 z总数
+int zm_killed;//dead z数
+int gamestauts;
 //植物
 struct zhiwu{
 	int type;//植物类型，0：没有植物，1：第一种植物
@@ -106,6 +111,9 @@ void gameinit() {
 
 	memset(imgZhiWu, 0, sizeof(imgZhiWu));
 	memset(map, 0, sizeof(map));//一开始没有种植植物，故全设为0
+	zm_killed = 0;
+	sum_ZM = 0;
+	gamestauts = Going;
 	//初始化游戏卡牌
 	char name[64];
 	for (int i = 0; i < zhiwu_count; i++) {
@@ -124,7 +132,7 @@ void gameinit() {
 		}
 	}
 	curZhiWu = 0;
-	sunshine = 50;
+	sunshine = 5000;
 	memset(balls, 0, sizeof(balls));
 	for (int i = 0; i < 29; i++) {
 		sprintf_s(name, sizeof(name), "res/sunshine/%d.png", i + 1);
@@ -384,7 +392,7 @@ void createSunshine() {
 	static int fre = 10;
 	count++;
 	if (count >= fre) {
-		fre = 400 + rand() % 300;
+		fre = 400 + rand() % 200;
 		count = 0;
 		//从阳光池中取一个可以使用的
 		int ballMax = sizeof(balls) / sizeof(balls[0]);
@@ -501,6 +509,9 @@ void updateSunshine() {
 }
 //僵尸的创建
 void createZM() {
+	if (sum_ZM >= ZM_MAX) {
+		return;
+	}
 	static int count = 0;
 	static int zmfre = 100;
 	count++;
@@ -516,9 +527,10 @@ void createZM() {
 			zms[i].x = WIN_WIDTH;
 			zms[i].row = rand() % 3;
 			zms[i].y = 172 + (1 + zms[i].row) * 100;
-			zms[i].speed = 0.6;
+			zms[i].speed = 10;
 			zms[i].blood = 100;
 			zms[i].dead = false;
+			sum_ZM++;
 		}
 	}
 
@@ -535,10 +547,11 @@ void updateZM() {
 			if (zms[i].used) {
 				zms[i].x -= zms[i].speed;
 				if (zms[i].x < 10) {
-					std::cout << "GAME OVER" << std::endl;
-					MessageBox(NULL, "over", "over", 0);
-					zms[i].used = false;
-					exit(0);//待优化
+					/*std::cout << "GAME OVER" << std::endl;
+					MessageBox(NULL, "over", "over", 0);*/
+					//zms[i].used = false;
+					//
+					gamestauts = Fail;
 				}
 			}
 		}
@@ -556,6 +569,10 @@ void updateZM() {
 					zms[i].frameIndex++;
 					if (zms[i].frameIndex >= 20) {
 						zms[i].used = false;
+						zm_killed++;
+						if (zm_killed == ZM_MAX) {
+							gamestauts = Win;
+						}
 					}
 				}
 				else if (zms[i].eating) {
@@ -846,7 +863,22 @@ void barsDown() {
 	}
 	Sleep(5);
 }
-
+bool checkOver() {
+	if (gamestauts == Win) {
+		Sleep(2000);
+		mciSendString("play res/win.mp3", 0, 0, 0);
+		loadimage(0, "res/win2.png");
+		return true;
+	}
+	else if (gamestauts == Fail) {
+		mciSendString("play res/lose.mp3", 0, 0, 0);
+		loadimage(0, "ZombiesWon.png");
+		Sleep(2000);
+		loadimage(0, "res/fail2.png");
+		return true;
+	}
+	return false;
+}
 int main() {
 	gameinit();
 	StartUI();
@@ -866,6 +898,7 @@ int main() {
 		if (flag) {
 			flag = false;
 			updateGame();//更新游戏数据
+			if (checkOver())break;
 		}
 		updateWindows();
 	
