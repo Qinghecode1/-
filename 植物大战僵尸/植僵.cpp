@@ -865,12 +865,14 @@ void barsDown() {
 }
 bool checkOver() {
 	if (gamestauts == Win) {
+		mciSendString("close res.ng.mp3", 0, 0, 0);
 		Sleep(2000);
 		mciSendString("play res/win.mp3", 0, 0, 0);
 		loadimage(0, "res/win2.png");
 		return true;
 	}
 	else if (gamestauts == Fail) {
+		mciSendString("close res.ng.mp3", 0, 0, 0);
 		mciSendString("play res/lose.mp3", 0, 0, 0);
 		loadimage(0, "ZombiesWon.png");
 		Sleep(2000);
@@ -888,6 +890,7 @@ int main() {
 	int timer = 0;
 	bool flag = true;
 	while (1) {
+		
 		userClick();
 		//getDelay返回计算这个函数两次调用之间的间隔
 		timer += getDelay();
@@ -903,7 +906,6 @@ int main() {
 		updateWindows();
 	
 	}
-	
 	system("pause");
 	return 0;
 }
