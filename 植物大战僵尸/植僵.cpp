@@ -786,7 +786,10 @@ void StartUI() {
 }
 //“Ù¿÷≥ı ºªØ
 void musicinit() {
-	mciSendString("play res/bg.mp3", 0, 0, 0);
+	mciSendString("open res/bg.mp3 alias m", NULL, 0, NULL);
+	mciSendString("play m", NULL, 0, NULL);
+	//mciSendString("close m", NULL, 0, NULL);
+
 }
 
 void viewScence() {
@@ -865,14 +868,14 @@ void barsDown() {
 }
 bool checkOver() {
 	if (gamestauts == Win) {
-		mciSendString("close res.ng.mp3", 0, 0, 0);
+		mciSendString("close m", NULL, 0, NULL);
 		Sleep(2000);
 		mciSendString("play res/win.mp3", 0, 0, 0);
 		loadimage(0, "res/win2.png");
 		return true;
 	}
 	else if (gamestauts == Fail) {
-		mciSendString("close res.ng.mp3", 0, 0, 0);
+		mciSendString("close m", NULL, 0, NULL);
 		mciSendString("play res/lose.mp3", 0, 0, 0);
 		loadimage(0, "ZombiesWon.png");
 		Sleep(2000);
